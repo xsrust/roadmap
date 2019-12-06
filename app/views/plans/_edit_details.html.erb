@@ -1,3 +1,7 @@
+<% project_title_tooltip =  _('If applying for funding, state the name exactly as in the grant proposal.') %>
+<% project_abstract_tooltip = _("Briefly summarise your research project to help others understand the purposes for which the data are being collected or created.") %>
+<% id_tooltip = _('A pertinent ID as determined by the funder and/or organisation.') %>
+
 <div class="row">
     <div class="col-md-8">
     <%= form_for plan, html: {method: :put, class: 'form-horizontal edit_plan' } do |f| %>
@@ -6,8 +10,10 @@
           <%= f.label(:title, _('Project title'), class: 'control-label') %>
         </div>
         <div class="col-md-8">
-          <%= f.text_field(:title, class: "form-control", "aria-required": true, 'data-toggle': 'tooltip',
-            title: _('If applying for funding, state the name exactly as in the grant proposal.')) %>
+          <em class="sr-only"><%= project_title_tooltip %></em>
+          <%= f.text_field(:title, class: "form-control", "aria-required": true,
+            'data-toggle': 'tooltip', spellcheck: true,
+            title: project_title_tooltip) %>
       <div class="checkbox">
         <%= f.hidden_field :visibility %>
         <%= f.label(:is_test, class: 'control-label') do %>
@@ -25,23 +31,30 @@
           <%= f.text_field(
             :funder_name,
             class: "form-control",
+            spellcheck: true,
             "aria-required": false) %>
         </div>
       </div>
       <div class="form-group"><!-- grant_number -->
         <div class="col-md-12">
-          <%= f.label(:grant_number, _('Grant number'), class: 'control-label') %>
+          <%= label_tag(:plan_grant_number_name, _('Grant number'), class: 'control-label') %>
         </div>
+
         <div class="col-md-8">
-          <%= f.text_field(:grant_number, class: "form-control", "aria-required": false, 'data-toggle': 'tooltip',
-            title: _('Grant reference number if applicable [POST-AWARD DMPs ONLY]')) %>
+          <%= text_field_tag(:plan_grant_number_name, '',
+              class: "grant-id-typeahead form-control",
+              autocomplete: "off",
+              aria: { required: false }) %>
+          <%= f.hidden_field(:grant_number) %>
+          <span class="text-muted" id="grant_number_info">Grant number: <%= @plan.grant_number %></span>
         </div>
       </div>
       <div class="form-group"><!-- description -->
         <div class="col-md-12">
           <%= f.label(:description, _('Project abstract'), class: 'control-label') %>
         </div>
-        <div class="col-md-8" data-toggle="tooltip" title="<%= _("Briefly summarise your research project to help others understand the purposes for which the data are being collected or created.") %>">
+        <div class="col-md-8" data-toggle="tooltip" title="<%= project_abstract_tooltip %>">
+          <em class="sr-only"><%= project_abstract_tooltip %></em>
           <%= f.text_area(
             :description, rows: 6,
             class: 'form-control tinymce',
@@ -53,8 +66,10 @@
           <%= f.label(:identifier, _('ID'), class: 'control-label') %>
         </div>
         <div class="col-md-8">
-          <%= f.text_field(:identifier, class: "form-control", "aria-required": false, 'data-toggle': "tooltip",
-                           title: _('A pertinent ID as determined by the funder and/or organisation.')) %>
+          <em class="sr-only"><%= id_tooltip %></em>
+          <%= f.text_field(:identifier, class: "form-control", "aria-required": false,
+                           'data-toggle': "tooltip", spellcheck: true,
+                           title: id_tooltip) %>
         </div>
       </div>
       <fieldset class="project-details">
@@ -151,48 +166,58 @@
     </div>
     <div class="col-md-4">
       <h2><%= _('Select Guidance') %></h2>
-      <p><%= _('To help you write your plan, %{application_name} can show you guidance from a variety of organisations.') %
-          {application_name: Rails.configuration.branding[:application][:name]} %>
-          </p>
-      <fieldset>
-        <p><%= _('Select up to 6 organisations to see their guidance.') %></p>
-        <ul id="priority-guidance-orgs">
-          <%= render partial: "guidance_choices",
-                        locals: {choices: @important_ggs, form: f,
-                                 current_selections: @selected_guidance_groups} %>
-        </ul>
-      </fieldset>
-      <p><%= _('Find guidance from additional organisations below') %></p>
-      <%= link_to _('See the full list'), '#', 'data-toggle' =>  'modal', 'data-target' => '#modal-full-guidances', class: 'modal-guidances-window' %>
 
-      <br>
-      <%= f.button(_('Save'), class: "btn btn-default", type: "submit") %>
+      <% if @all_guidance_groups.length > 0 %>
+        <p><%= _('To help you write your plan, %{application_name} can show you guidance from a variety of organisations.') %
+            {application_name: Rails.configuration.branding[:application][:name]} %>
+            </p>
+        <fieldset>
+          <p><%= _('Select up to 6 organisations to see their guidance.') %></p>
+          <ul id="priority-guidance-orgs">
+            <%= render partial: "guidance_choices",
+                          locals: {choices: @important_ggs, form: f,
+                                   current_selections: @selected_guidance_groups} %>
+          </ul>
+        </fieldset>
+
+        <% if @all_guidance_groups.length > @important_ggs.length %>
+          <p><%= _('Find guidance from additional organisations below') %></p>
+          <%= link_to _('See the full list'), '#', 'data-toggle' =>  'modal', 'data-target' => '#modal-full-guidances', class: 'modal-guidances-window' %>
+        <% end %>
+        <br>
+        <%= f.button(_('Save'), class: "btn btn-default", type: "submit") %>
+
+      <% else %>
+        <p><%= _("There is no additional guidance for this template.") %></p>
+      <% end %>
     </div>
 
-    <div id="modal-full-guidances" class="modal fade" tabindex="-1" role="dialog">
-      <div class="modal-dialog" role="document">
-        <div class="modal-content">
-          <div class="sign-in">
-            <div class="modal-body">
-              <button type="button" class="close pull-right" data-dismiss="modal" aria-label="<%= _('Cancel') %>">
-                <span class="fa fa-times" aria-hidden="true">&nbsp;</span>
-              </button>
-              <h2><%= _('Select Guidance') %></h2>
-              <p>
-                <%= _('To help you write your plan, %{application_name} can show you guidance from a variety of organisations. Please choose up to 6 organisations of the following organisations who offer guidance relevant to your plan.') %
-                {application_name: Rails.configuration.branding[:application][:name]} %>
-              </p>
-              <p><strong><%= _("Don't forget to save your changes after making your selections.") %></strong></p>
-              <ul id="other-guidance-orgs">
-                <%= render partial: "guidance_choices",
-                           locals: {choices: @all_ggs_grouped_by_org, form: f,
-                                     current_selections: @selected_guidance_groups} %>
-              </ul>
+    <% if @all_guidance_groups.length > @important_ggs.length %>
+      <div id="modal-full-guidances" class="modal fade" tabindex="-1" role="dialog">
+        <div class="modal-dialog" role="document">
+          <div class="modal-content">
+            <div class="sign-in">
+              <div class="modal-body">
+                <button type="button" class="close pull-right" data-dismiss="modal" aria-label="<%= _('Cancel') %>">
+                  <span class="fa fa-times" aria-hidden="true">&nbsp;</span>
+                </button>
+                <h2><%= _('Select Guidance') %></h2>
+                <p>
+                  <%= _('To help you write your plan, %{application_name} can show you guidance from a variety of organisations. Please choose up to 6 organisations of the following organisations who offer guidance relevant to your plan.') %
+                  {application_name: Rails.configuration.branding[:application][:name]} %>
+                </p>
+                <p><strong><%= _("Don't forget to save your changes after making your selections.") %></strong></p>
+                <ul id="other-guidance-orgs">
+                  <%= render partial: "guidance_choices",
+                             locals: {choices: @all_ggs_grouped_by_org, form: f,
+                                       current_selections: @selected_guidance_groups} %>
+                </ul>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+    <% end %>
 
   <% end %>
 </div>
