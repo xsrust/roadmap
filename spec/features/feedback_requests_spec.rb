@@ -12,19 +12,29 @@ RSpec.describe "FeedbackRequests", type: :feature do
   let!(:user) { create(:user, org: org) }
 
   before do
-    plan.roles << create(:role, user: user, commenter: true)
-    plan.roles << create(:role, user: user, creator: true)
-    plan.roles << create(:role, user: user, editor: true)
-    plan.roles << create(:role, user: user, administrator: true)
+    plan.roles << create(:role, :commenter, :creator, :editor, :administrator, user: user)
     sign_in(user)
+    ActionMailer::Base.deliveries = []
+  end
+
+  after do
+    ActionMailer::Base.deliveries = []
   end
 
   scenario "User requests feedback for Plan", :js do
     # Actions
     click_link plan.title
     expect(current_path).to eql(plan_path(plan))
-    click_link "Share"
-    click_link "Request feedback"
+
+    # Click "Request feedback" tab
+    within("ul.nav.nav-tabs") do
+      click_link "Request feedback"
+    end
+
+    # Click "Request feedback" button within panel
+    within("div.panel") do
+      click_link "Request feedback"
+    end
 
     # Expectations
     expect(plan.reload).to be_feedback_requested
