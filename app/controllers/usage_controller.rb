@@ -2,8 +2,9 @@
 
 class UsageController < ApplicationController
 
-  after_action :verify_authorized
+  require "csvable"
 
+  after_action :verify_authorized
   # GET /usage
   def index
     authorize :usage
@@ -13,6 +14,9 @@ class UsageController < ApplicationController
     plan_data(args: args, as_json: true)
     total_plans(args: min_max_dates(args: args))
     total_users(args: min_max_dates(args: args))
+    @separators = Rails.configuration.x.application.csv_separators
+    @funder = current_user.org.funder?
+    @filtered = args[:filtered]
   end
 
   # POST /usage_plans_by_template
@@ -34,35 +38,23 @@ class UsageController < ApplicationController
     # for global usage
     authorize :usage
 
-    data = Org::TotalCountStatService.call
-    data_csvified = Csvable.from_array_of_hashes(data)
+    data = Org::TotalCountStatService.call(filtered: parse_filtered) # TODO: Update
+    sep = sep_param
+    data_csvified = Csvable.from_array_of_hashes(data, true, sep)
 
     send_data(data_csvified, filename: "totals.csv")
   end
 
-  # POST /usage_filter
-  # rubocop:disable Metrics/MethodLength
-  def filter
-    # This action is triggered when a user specifies a date range
+  # GET
+  def org_statistics
     authorize :usage
 
-    args = args_from_params
-    plan_data(args: args)
-    user_data(args: args)
-    total_plans(args: min_max_dates(args: args))
-    total_users(args: min_max_dates(args: args))
+    data = Org::MonthlyUsageService.call(current_user, filtered: parse_filtered)
+    sep = sep_param
+    data_csvified = Csvable.from_array_of_hashes(data, true, sep)
 
-    @topic = usage_params[:topic]
-    case @topic
-    when "plans"
-      @total = @total_org_plans
-      @ranged = @plans_per_month.sum(:count)
-    else
-      @total = @total_org_users
-      @ranged = @users_per_month.sum(:count)
-    end
+    send_data(data_csvified, filename: "totals.csv")
   end
-  # rubocop:enable Metrics/MethodLength
 
   # GET /usage_yearly_users
   def yearly_users
@@ -71,7 +63,8 @@ class UsageController < ApplicationController
     authorize :usage
 
     user_data(args: default_query_args)
-    send_data(CSV.generate do |csv|
+    sep = sep_param
+    send_data(CSV.generate(col_sep: sep) do |csv|
       csv << [_("Month"), _("No. Users joined")]
       total = 0
       @users_per_month.each do |data|
@@ -89,7 +82,8 @@ class UsageController < ApplicationController
     authorize :usage
 
     plan_data(args: default_query_args)
-    send_data(CSV.generate do |csv|
+    sep = sep_param
+    send_data(CSV.generate(col_sep: sep) do |csv|
       csv << [_("Month"), _("No. Completed Plans")]
       total = 0
       @plans_per_month.each do |data|
@@ -108,9 +102,12 @@ class UsageController < ApplicationController
 
     args = default_query_args
     args[:start_date] = first_plan_date
+    sep = sep_param
 
     plan_data(args: args, sort: :desc)
-    data_csvified = StatCreatedPlan.to_csv(@plans_per_month, details: { by_template: true })
+    # rubocop:disable Layout/LineLength
+    data_csvified = StatCreatedPlan.to_csv(@plans_per_month, details: { by_template: true, sep: sep })
+    # rubocop:enable Layout/LineLength
     send_data(data_csvified, filename: "created_plan_by_template.csv")
   end
 
@@ -118,11 +115,10 @@ class UsageController < ApplicationController
 
   def usage_params
     params.require(:usage).permit(:template_plans_range, :org_id, :start_date,
-                                  :end_date, :topic)
+                                  :end_date, :topic, :filtered)
   end
 
-  # rubocop:disable Metrics/AbcSize, Metrics/CyclomaticComplexity
-  # rubocop:disable Metrics/MethodLength
+  # rubocop:disable Metrics/AbcSize
   def args_from_params
     org = current_user.org
     if current_user.can_super_admin? && usage_params[:org_id].present?
@@ -138,8 +134,7 @@ class UsageController < ApplicationController
       end_date: end_date.present? ? end_date : Date.today.strftime("%Y-%m-%d")
     }
   end
-  # rubocop:enable Metrics/AbcSize, Metrics/CyclomaticComplexity
-  # rubocop:enable Metrics/MethodLength
+  # rubocop:enable Metrics/AbcSize
 
   def default_query_args
     # Stats are generated at the beginning of each month, so our reference
@@ -149,8 +144,18 @@ class UsageController < ApplicationController
     {
       org: current_user.org,
       start_date: Date.today.months_ago(12).end_of_month.strftime("%Y-%m-%d"),
-      end_date: Date.today.last_month.end_of_month.strftime("%Y-%m-%d")
+      end_date: Date.today.last_month.end_of_month.strftime("%Y-%m-%d"),
+      filtered: parse_filtered
     }
+  end
+
+  def parse_filtered
+    params[:filtered].present? && params[:filtered] == "true"
+  end
+
+  # set the csv separator or default to comma
+  def sep_param
+    params["sep"] || ","
   end
 
   def min_max_dates(args:)
@@ -160,16 +165,16 @@ class UsageController < ApplicationController
   end
 
   def user_data(args:, as_json: false, sort: :asc)
-    @users_per_month = StatJoinedUser.monthly_range(args)
+    @users_per_month = StatJoinedUser.monthly_range(args.except(:filtered))
                                      .order(date: sort)
-    @users_per_month = @users_per_month.map { |rec| rec.to_json } if as_json
+    @users_per_month = @users_per_month.map(&:to_json) if as_json
   end
 
   def plan_data(args:, as_json: false, sort: :asc)
     @plans_per_month = StatCreatedPlan.monthly_range(args)
                                       .where.not(details: "{\"by_template\":[]}")
                                       .order(date: sort)
-    @plans_per_month = @plans_per_month.map { |rec| rec.to_json } if as_json
+    @plans_per_month = @plans_per_month.map(&:to_json) if as_json
   end
 
   def total_plans(args:)
@@ -177,11 +182,12 @@ class UsageController < ApplicationController
   end
 
   def total_users(args:)
-    @total_org_users = StatJoinedUser.monthly_range(args).sum(:count)
+    @total_org_users = StatJoinedUser.monthly_range(args.except(:filtered)).sum(:count)
   end
 
   def first_plan_date
-    StatCreatedPlan.all.order(:date).limit(1).pluck(:date).first
+    StatCreatedPlan.all.order(:date).limit(1).pluck(:date).first \
+    || Date.today.last_month.end_of_month
   end
 
 end
